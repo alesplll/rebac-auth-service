@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rebac-auth-service"
+version = "0.1.0"
+dependencies = [
+    "grpcio>=1.60.0",
+    "grpcio-tools>=1.60.0",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "pytest>=7.4.0",
+]
+
+[project.scripts]
+rebac-server = "cmd.server.main:run_server"
+
