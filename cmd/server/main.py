@@ -4,25 +4,45 @@ from concurrent import futures
 import grpc
 from grpc_reflection.v1alpha import reflection
 from internal.gen import authz_pb2, authz_pb2_grpc
+from internal.rebac.model import PermissionService, Tuple 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class PermissionServiceServicer(authz_pb2_grpc.PermissionServiceServicer):
+    def __init__(self):
+        self.rebac = PermissionService()  # ← In-memory store
+
     def Check(self, request, context):
-        logger.info(f"Check: {request.subject} {request.action} {request.object}")
+        allowed = self.rebac.check(
+            subject=request.subject,
+            action=request.action, 
+            object=request.object
+        )
         return authz_pb2.CheckResponse(
-            allowed=True,
-            reason="Stage 1: hardcoded ALLOW (no DB yet)"
+            allowed=allowed,
+            reason="Stage 2: in-memory ReBAC"
         )
     
     def WriteTuple(self, request, context):
-        logger.info(f"WriteTuple: {request.subject} {request.relation} {request.object}")
-        return authz_pb2.WriteTupleResponse(success=True)
+        tuple_ = Tuple(
+            subject=request.subject,
+            relation=request.relation,
+            object=request.object
+        )
+        success = self.rebac.write_tuple(tuple_)
+        return authz_pb2.WriteTupleResponse(success=success)
     
     def Read(self, request, context):
-        logger.info(f"Read: {request.subject}")
-        return authz_pb2.ReadResponse(tuples=[])
+        tuples = self.rebac.read_tuples(request.subject)
+        response = authz_pb2.ReadResponse()
+        for t in tuples:
+            response.tuples.add(
+                subject=t.subject,
+                relation=t.relation,
+                object=t.object
+            )
+        return response 
 
 def serve():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
