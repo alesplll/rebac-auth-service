@@ -7,11 +7,16 @@ from internal.gen import authz_pb2, authz_pb2_grpc
 from internal.rebac.model import PermissionService
 from internal.neo4j.store import Neo4jStore
 from internal.types import Tuple 
+from internal.cache.redis_cache import RedisDecisionCache
+from internal.kafka.producer import AuditProducer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 NEO4J_URI = "bolt://localhost:7687"
+REDIS_HOST = "localhost"
+REDIS_PORT = 6379
+KAFKA_BOOTSTRAP = "localhost:9092"
 
 class PermissionServiceServicer(authz_pb2_grpc.PermissionServiceServicer):
     """gRPC service implementation"""
@@ -23,7 +28,13 @@ class PermissionServiceServicer(authz_pb2_grpc.PermissionServiceServicer):
             user="neo4j",
             password="password123"
         )
-        self.rebac = PermissionService(store=neo4j_store)
+        cache = RedisDecisionCache(host=REDIS_HOST, port=REDIS_PORT)
+        audit_producer = AuditProducer(KAFKA_BOOTSTRAP)
+        self.rebac = PermissionService(
+            store=neo4j_store, 
+            cache=cache,
+            audit_producer=audit_producer
+        )
     
     def Check(self, request, context):
         allowed = self.rebac.check(
@@ -66,7 +77,7 @@ def serve():
     
     server.add_insecure_port('[::]:50051')
     server.start()
-    logger.info("🚀 Stage 3: Neo4j ReBAC Auth Service (:50051)")
+    logger.info("🚀 Stage 4: Neo4j + Redis ReBAC Auth Service (:50051)")
     try:
         server.wait_for_termination()
     finally:
