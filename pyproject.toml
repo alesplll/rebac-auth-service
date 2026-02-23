@@ -11,9 +11,19 @@ dependencies = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
     "pytest>=7.4.0",
-    "confluent-kafka==2.5.0"
+    "confluent-kafka==2.5.0",
+    "neo4j>=5.0.0",
+    "redis>=4.0.0",
 ]
 
 [project.scripts]
-rebac-server = "cmd.server.main:run_server"
+rebac-server = "entrypoints.server.main:run_server"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "integration: integration tests (require Neo4j, run with: pytest -m integration)",
+]
+filterwarnings = ["ignore:.*grpc.*"]
 

@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install grpcio-tools
+
+      - name: Generate gRPC stubs
+        run: bash proto/generate.sh
+
+      - name: Run unit tests
+        run: pytest tests/unit -v --tb=short
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    services:
+      neo4j:
+        image: neo4j:5
+        env:
+          NEO4J_AUTH: neo4j/password123
+        ports:
+          - 7687:7687
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install grpcio-tools
+
+      - name: Generate gRPC stubs
+        run: bash proto/generate.sh
+
+      - name: Wait for Neo4j
+        run: |
+          for i in $(seq 1 30); do
+            if python -c "
+from neo4j import GraphDatabase
+d = GraphDatabase.driver('bolt://localhost:7687', auth=('neo4j', 'password123'))
+d.verify_connectivity()
+d.close()
+" 2>/dev/null; then echo OK; break; fi
+            sleep 2
+          done
+
+      - name: Run integration tests
+        env:
+          NEO4J_URI: bolt://localhost:7687
+          NEO4J_PASSWORD: password123
+        run: pytest tests/integration -v -m integration --tb=short

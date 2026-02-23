@@ -5,6 +5,7 @@ from internal.cache.invalidation_consumer import CacheInvalidationConsumer
 
 logging.basicConfig(level=logging.INFO)
 
+
 def main():
     cache = RedisDecisionCache()
     consumer = CacheInvalidationConsumer(redis_cache=cache)
@@ -13,6 +14,6 @@ def main():
     except KeyboardInterrupt:
         logging.info("Consumer stopped")
 
+
 if __name__ == "__main__":
     main()
-

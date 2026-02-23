@@ -26,8 +26,9 @@ message CheckResponse {
 
 message WriteTupleRequest {
   string subject = 1;
-  string relation = 2;    // "MEMBER_OF", "OWNER_OF", "VIEWER"
+  string relation = 2;    // "MEMBER_OF", "HAS_PERMISSION", "OWNER_OF", "VIEWER"
   string object = 3;
+  string level = 4;       // For HAS_PERMISSION: "read" | "write" | "create" | "delete" | "admin"
 }
 
 message WriteTupleResponse {
@@ -46,5 +47,6 @@ message RelationTuple {
   string subject = 1;
   string relation = 2;
   string object = 3;
+  string level = 4;       // Present when relation is HAS_PERMISSION
 }
 
