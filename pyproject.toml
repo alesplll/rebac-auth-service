@@ -19,6 +19,9 @@ dependencies = [
 [project.scripts]
 rebac-server = "entrypoints.server.main:run_server"
 
+[tool.hatch.build.targets.wheel]
+packages = ["internal", "entrypoints"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
