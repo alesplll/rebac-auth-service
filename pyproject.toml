@@ -16,6 +16,9 @@ dependencies = [
     "redis>=4.0.0",
 ]
 
+[project.optional-dependencies]
+test = ["pytest-cov>=4.0.0"]
+
 [project.scripts]
 rebac-server = "entrypoints.server.main:run_server"
 

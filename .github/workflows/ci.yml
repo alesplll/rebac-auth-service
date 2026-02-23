@@ -22,14 +22,14 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[test,grpc]'  # 🆕 editable + extras
-          pip install pytest grpcio-tools
+          pip install -e ".[test]"
+          pip install grpcio-tools
 
       - name: Generate gRPC stubs
         run: bash proto/generate.sh
 
       - name: Run unit tests
-        run: pytest tests/unit -v --tb=short --cov=src --cov-report=term-missing
+        run: pytest tests/unit -v --tb=short --cov=internal --cov=entrypoints --cov-report=term-missing
 
   integration-tests:
     runs-on: ubuntu-latest
@@ -60,8 +60,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[test,grpc,neo4j]'
-          pip install pytest grpcio-tools neo4j
+          pip install -e ".[test]"
+          pip install grpcio-tools
 
       - name: Generate gRPC stubs
         run: bash proto/generate.sh
