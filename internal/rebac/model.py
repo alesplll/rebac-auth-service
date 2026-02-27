@@ -32,12 +32,24 @@ class PermissionService:
             raise RuntimeError("No storage configured")
         logger.info(f"Write tuple: {tuple_}")
         success = self._store.write_tuple(tuple_)
-        
+
         if self._audit_producer and success:
             self._audit_producer.send_tuple_event(tuple_, "tuple_written")
 
         return success
-    
+
+    def delete_tuple(self, tuple_: Tuple) -> bool:
+        """Delete relationship tuple"""
+        if not self._store:
+            raise RuntimeError("No storage configured")
+        logger.info(f"Delete tuple: {tuple_}")
+        success = self._store.delete_tuple(tuple_)
+
+        if self._audit_producer and success:
+            self._audit_producer.send_tuple_event(tuple_, "tuple_removed")
+
+        return success
+
     def read_tuples(self, subject: str) -> List[Tuple]:
         """Read all outgoing relationships for subject"""
         if not self._store:
@@ -46,12 +58,13 @@ class PermissionService:
         return self._store.read_tuples(subject)
 
     def check(self, subject: str, action: str, object: str) -> bool:
-        """Check if subject can perform action on object with caching."""
+        """Check if subject can perform action on object with caching and audit."""
         if not self._store:
             logger.warning("No storage - denying access")
             return False
 
         # 1) cache lookup
+        allowed = None
         if self._cache:
             cached = self._cache.get(subject, action, object)
             if cached is not None:
@@ -59,16 +72,18 @@ class PermissionService:
                     "Authorization (cached): %s %s %s -> %s",
                     subject, action, object, "ALLOW" if cached else "DENY",
                 )
-                return cached
+                allowed = cached
 
-        # 2) storage check
-        logger.info("Authorization (store): %s %s %s", subject, action, object)
-        allowed = self._store.check(subject, action, object)
+        # 2) storage check on cache miss
+        if allowed is None:
+            logger.info("Authorization (store): %s %s %s", subject, action, object)
+            allowed = self._store.check(subject, action, object)
+            if self._cache:
+                self._cache.set(subject, action, object, allowed, ttl_seconds=30)
 
-        # 3) write to cache
-        if self._cache:
-            # TTL can be tuned; start with 30 seconds
-            self._cache.set(subject, action, object, allowed, ttl_seconds=30)
+        # 3) audit every decision
+        if self._audit_producer:
+            self._audit_producer.send_decision_event(subject, action, object, allowed)
 
         logger.info("Authorization result: %s", "ALLOW" if allowed else "DENY")
         return allowed

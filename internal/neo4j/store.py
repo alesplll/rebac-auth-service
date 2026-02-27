@@ -92,6 +92,24 @@ class Neo4jStore:
                 )
         return result
 
+    def delete_tuple(self, tuple_: Tuple) -> bool:
+        """Delete a relationship edge. Returns True if it existed and was deleted."""
+        query = """
+        MATCH (subject {id: $subject_id})-[rel:`%s`]->(object {id: $object_id})
+        DELETE rel
+        RETURN true AS deleted
+        """ % tuple_.relation
+        with self.driver.session() as session:
+            result = session.run(
+                query,
+                subject_id=tuple_.subject,
+                object_id=tuple_.object,
+            )
+            rec = result.single()
+            deleted = bool(rec and rec["deleted"])
+            logger.debug("Neo4j delete_tuple: %s → deleted=%s", tuple_, deleted)
+            return deleted
+
     def check(self, subject: str, action: str, object: str) -> bool:
         """
         Check authorization via transitive path:

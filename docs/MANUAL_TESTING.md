@@ -187,7 +187,132 @@ grpcurl -plaintext -d '{"subject":"user:alice","action":"write","object":"resour
 
 ---
 
-### 5.4 Чтение связей (Read)
+### 5.4 Удаление связей (DeleteTuple)
+
+Сценарий: убираем `alex` из группы `devops` — он должен потерять доступ к `server-1`.
+
+**Убедись, что доступ пока есть:**
+
+```bash
+grpcurl -plaintext -d '{"subject":"user:alex","action":"read","object":"resource:server-1"}' \
+  localhost:50051 rebac.authz.v1.PermissionService/Check
+# Ожидаем: {"allowed": true, ...}
+```
+
+**Удалить MEMBER_OF:**
+
+```bash
+grpcurl -plaintext -d '{"subject":"user:alex","relation":"MEMBER_OF","object":"group:devops"}' \
+  localhost:50051 rebac.authz.v1.PermissionService/DeleteTuple
+# Ожидаем: {"success": true}
+```
+
+**Проверить — доступ отозван:**
+
+```bash
+grpcurl -plaintext -d '{"subject":"user:alex","action":"read","object":"resource:server-1"}' \
+  localhost:50051 rebac.authz.v1.PermissionService/Check
+# Ожидаем: {"allowed": false}
+
+grpcurl -plaintext -d '{"subject":"user:alex","action":"admin","object":"resource:server-1"}' \
+  localhost:50051 rebac.authz.v1.PermissionService/Check
+# Ожидаем: {"allowed": false}
+```
+
+**Восстановить обратно (для дальнейших тестов):**
+
+```bash
+grpcurl -plaintext -d '{"subject":"user:alex","relation":"MEMBER_OF","object":"group:devops"}' \
+  localhost:50051 rebac.authz.v1.PermissionService/WriteTuple
+```
+
+**Удалить саму HAS_PERMISSION (группа теряет доступ к ресурсу):**
+
+```bash
+grpcurl -plaintext -d '{"subject":"group:devops","relation":"HAS_PERMISSION","object":"resource:server-1"}' \
+  localhost:50051 rebac.authz.v1.PermissionService/DeleteTuple
+# Ожидаем: {"success": true}
+
+# Теперь alex тоже не имеет доступа — HAS_PERMISSION снята с группы
+grpcurl -plaintext -d '{"subject":"user:alex","action":"read","object":"resource:server-1"}' \
+  localhost:50051 rebac.authz.v1.PermissionService/Check
+# Ожидаем: {"allowed": false}
+```
+
+**Удаление несуществующей связи возвращает false:**
+
+```bash
+grpcurl -plaintext -d '{"subject":"user:nobody","relation":"MEMBER_OF","object":"group:nobody"}' \
+  localhost:50051 rebac.authz.v1.PermissionService/DeleteTuple
+# Ожидаем: {"success": false}
+```
+
+---
+
+### 5.5 Аудит решений в Kafka
+
+Каждый вызов `Check` отправляет событие `ACCESS_GRANTED` или `ACCESS_DENIED` в топик `auth-changes`. Каждый `WriteTuple` и `DeleteTuple` — событие `tuple_written` / `tuple_removed` с hints для инвалидации кэша.
+
+Смотреть события в реальном времени:
+
+```bash
+docker exec -it $(docker ps -qf name=kafka) \
+  kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic auth-changes \
+  --from-beginning
+```
+
+Пример событий в выводе:
+
+```json
+{"event_type": "tuple_written", "timestamp": 1700000000000, "tuple": {"subject": "user:alex", "relation": "MEMBER_OF", "object": "group:devops"}, "invalidation_hints": ["auth_decision:user:alex:*:resource:server-1", ...]}
+{"event_type": "ACCESS_GRANTED", "timestamp": 1700000001000, "subject": "user:alex", "action": "read", "object": "resource:server-1"}
+{"event_type": "ACCESS_DENIED",  "timestamp": 1700000002000, "subject": "user:eve",  "action": "read", "object": "resource:server-1"}
+{"event_type": "tuple_removed",  "timestamp": 1700000003000, "tuple": {"subject": "user:alex", "relation": "MEMBER_OF", "object": "group:devops"}, "invalidation_hints": [...]}
+```
+
+---
+
+### 5.6 Кэш Redis: проверить hit/miss и инвалидацию
+
+```bash
+# До первого Check — ключей нет
+redis-cli KEYS "auth_decision:*"
+# (пусто)
+
+# Сделать Check
+grpcurl -plaintext -d '{"subject":"user:alex","action":"read","object":"resource:server-1"}' \
+  localhost:50051 rebac.authz.v1.PermissionService/Check
+
+# Ключ появился
+redis-cli KEYS "auth_decision:*"
+# auth_decision:user:alex:read:resource:server-1
+
+redis-cli GET "auth_decision:user:alex:read:resource:server-1"
+# "1"  (1 = allowed, 0 = denied)
+
+redis-cli TTL "auth_decision:user:alex:read:resource:server-1"
+# ~30 (секунды до истечения)
+
+# Удалить связь — cache-invalidator (если запущен) сделает SCAN + DEL по паттерну
+grpcurl -plaintext -d '{"subject":"user:alex","relation":"MEMBER_OF","object":"group:devops"}' \
+  localhost:50051 rebac.authz.v1.PermissionService/DeleteTuple
+
+# Ключ должен исчезнуть (через несколько секунд после обработки Kafka-события)
+redis-cli KEYS "auth_decision:*"
+# (пусто)
+```
+
+> Инвалидация работает только если запущен `cache_invalidator`:
+> ```bash
+> source venv/bin/activate
+> python entrypoints/cache_invalidator.py
+> ```
+
+---
+
+### 5.7 Чтение связей (Read)
 
 ```bash
 # Все исходящие связи user:alex
@@ -198,6 +323,8 @@ grpcurl -plaintext -d '{"subject":"user:alex"}' \
 grpcurl -plaintext -d '{"subject":"group:devops"}' \
   localhost:50051 rebac.authz.v1.PermissionService/Read
 ```
+
+После `DeleteTuple` связь пропадёт из ответа `Read`.
 
 ---
 
@@ -277,5 +404,8 @@ pytest tests/integration -v -m integration
 | 2 | `pip install -e .` → `pip install grpcio-tools` → `bash proto/generate.sh` |
 | 3 | В другом терминале: `cd deploy/local` → `docker compose up -d` |
 | 4 | В терминале с venv: `python -m entrypoints.server.main` (оставить запущенным) |
-| 5 | В третьем терминале: выполнить gRPC-запросы из раздела 5 (сначала WriteTuple, потом Check, потом Read) |
-| 6 | В браузере http://localhost:7474 → Cypher: `MATCH (n)-[r]->(m) RETURN n, r, m` чтобы увидеть весь граф |
+| 5 | (Опционально) В ещё одном терминале: `python entrypoints/cache_invalidator.py` — для инвалидации кэша по Kafka |
+| 6 | В третьем терминале: `WriteTuple` (5.2) → `Check` (5.3) → `DeleteTuple` (5.4) → `Read` (5.7) |
+| 7 | Kafka-события: `docker exec ... kafka-console-consumer.sh ...` (см. 5.5) |
+| 8 | Redis кэш: `redis-cli KEYS "auth_decision:*"` до/после Check и DeleteTuple (см. 5.6) |
+| 9 | В браузере http://localhost:7474 → Cypher: `MATCH (n)-[r]->(m) RETURN n, r, m` — увидеть весь граф |

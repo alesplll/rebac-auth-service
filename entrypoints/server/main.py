@@ -42,6 +42,11 @@ class PermissionServiceServicer(authz_pb2_grpc.PermissionServiceServicer):
         success = self.rebac.write_tuple(tuple_)
         return authz_pb2.WriteTupleResponse(success=success)
 
+    def DeleteTuple(self, request, context):
+        tuple_ = Tuple(request.subject, request.relation, request.object)
+        success = self.rebac.delete_tuple(tuple_)
+        return authz_pb2.DeleteTupleResponse(success=success)
+
     def Read(self, request, context):
         tuples = self.rebac.read_tuples(request.subject)
         response = authz_pb2.ReadResponse()

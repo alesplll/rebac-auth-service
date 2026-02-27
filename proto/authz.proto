@@ -9,6 +9,9 @@ service PermissionService {
   // Write a relationship tuple (user:alice MEMBER_OF group:dev)
   rpc WriteTuple(WriteTupleRequest) returns (WriteTupleResponse);
 
+  // Delete a relationship tuple
+  rpc DeleteTuple(DeleteTupleRequest) returns (DeleteTupleResponse);
+
   // Read relationships for subject
   rpc Read(ReadRequest) returns (ReadResponse);
 }
@@ -32,6 +35,16 @@ message WriteTupleRequest {
 }
 
 message WriteTupleResponse {
+  bool success = 1;
+}
+
+message DeleteTupleRequest {
+  string subject = 1;
+  string relation = 2;
+  string object = 3;
+}
+
+message DeleteTupleResponse {
   bool success = 1;
 }
 

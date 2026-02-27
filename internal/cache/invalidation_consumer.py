@@ -39,16 +39,18 @@ class CacheInvalidationConsumer:
             self.consumer.close()
 
     def _handle_event(self, event: dict):
-        """Process single audit event."""
+        """Process single audit event — invalidate cache on tuple_written / tuple_removed."""
         event_type = event.get("event_type")
-        if event_type != "tuple_written":
+        if event_type not in ("tuple_written", "tuple_removed"):
             return
 
-        tuple_data = event["tuple"]
         invalidation_hints = event.get("invalidation_hints", [])
-
         for pattern in invalidation_hints:
             if self.redis_cache:
-                self.redis_cache._client.delete(pattern)
-                logger.info(f"Cache invalidated: {pattern}")
+                keys = list(self.redis_cache._client.scan_iter(match=pattern))
+                if keys:
+                    self.redis_cache._client.delete(*keys)
+                    logger.info("Cache invalidated %d key(s) for pattern: %s", len(keys), pattern)
+                else:
+                    logger.debug("No cache keys found for pattern: %s", pattern)
 

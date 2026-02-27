@@ -26,7 +26,7 @@ class AuditProducer:
         logger.info(f"Audit producer initialized: {bootstrap_servers}/{topic}")
 
     def send_tuple_event(self, tuple_: Tuple, event_type: str = "tuple_written") -> None:
-        """Send tuple change event."""
+        """Send tuple change event with correct Redis invalidation hints."""
         event = {
             "event_type": event_type,
             "timestamp": int(1000 * time.time()),  # ms
@@ -35,16 +35,33 @@ class AuditProducer:
                 "relation": tuple_.relation,
                 "object": tuple_.object,
             },
+            # Patterns match auth_decision:{subject}:{action}:{object}
             "invalidation_hints": [
-                f"auth_decision:{tuple_.subject}:*:*:{tuple_.object}",
-                f"auth_decision:*:*:*:*:{tuple_.object}",
-            ]
+                f"auth_decision:{tuple_.subject}:*:{tuple_.object}",
+                f"auth_decision:*:*:{tuple_.object}",
+            ],
         }
-        
+
         self.producer.produce(
             topic=self.topic,
             value=json.dumps(event).encode('utf-8'),
-            callback=self._delivery_report
+            callback=self._delivery_report,
+        )
+        self.producer.poll(0)
+
+    def send_decision_event(self, subject: str, action: str, object_: str, allowed: bool) -> None:
+        """Send access decision audit event (ACCESS_GRANTED / ACCESS_DENIED)."""
+        event = {
+            "event_type": "ACCESS_GRANTED" if allowed else "ACCESS_DENIED",
+            "timestamp": int(1000 * time.time()),  # ms
+            "subject": subject,
+            "action": action,
+            "object": object_,
+        }
+        self.producer.produce(
+            topic=self.topic,
+            value=json.dumps(event).encode('utf-8'),
+            callback=self._delivery_report,
         )
         self.producer.poll(0)
 

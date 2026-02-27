@@ -86,3 +86,46 @@ def test_direct_user_has_permission(neo4j_store, clean_graph):
     )
     assert neo4j_store.check("user:bob", "read", "resource:doc1") is True
     assert neo4j_store.check("user:bob", "write", "resource:doc1") is False
+
+
+def test_delete_tuple_removes_relationship(neo4j_store, clean_graph):
+    """delete_tuple removes the edge; read_tuples no longer returns it."""
+    t = Tuple("user:alice", "MEMBER_OF", "group:dev", level=None)
+    neo4j_store.write_tuple(t)
+
+    assert any(x.relation == "MEMBER_OF" for x in neo4j_store.read_tuples("user:alice"))
+
+    result = neo4j_store.delete_tuple(t)
+
+    assert result is True
+    assert not any(x.relation == "MEMBER_OF" for x in neo4j_store.read_tuples("user:alice"))
+
+
+def test_delete_nonexistent_tuple_returns_false(neo4j_store, clean_graph):
+    """Deleting a non-existent edge returns False."""
+    result = neo4j_store.delete_tuple(
+        Tuple("user:nobody", "MEMBER_OF", "group:nothing")
+    )
+    assert result is False
+
+
+def test_check_returns_false_after_membership_deleted(neo4j_store, clean_graph):
+    """Access is denied after the MEMBER_OF tuple is removed."""
+    neo4j_store.write_tuple(Tuple("user:alice", "MEMBER_OF", "group:ops", level=None))
+    neo4j_store.write_tuple(
+        Tuple("group:ops", RelationType.HAS_PERMISSION.value, "resource:server", level="read")
+    )
+    assert neo4j_store.check("user:alice", "read", "resource:server") is True
+
+    neo4j_store.delete_tuple(Tuple("user:alice", "MEMBER_OF", "group:ops"))
+    assert neo4j_store.check("user:alice", "read", "resource:server") is False
+
+
+def test_delete_has_permission_tuple(neo4j_store, clean_graph):
+    """Deleting a HAS_PERMISSION edge revokes access."""
+    perm = Tuple("group:eng", RelationType.HAS_PERMISSION.value, "resource:ci", level="write")
+    neo4j_store.write_tuple(perm)
+    assert neo4j_store.check("group:eng", "write", "resource:ci") is True
+
+    neo4j_store.delete_tuple(Tuple("group:eng", RelationType.HAS_PERMISSION.value, "resource:ci"))
+    assert neo4j_store.check("group:eng", "write", "resource:ci") is False

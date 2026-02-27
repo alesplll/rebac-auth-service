@@ -17,6 +17,11 @@ class GraphStore(Protocol):
         ...
     
     @abstractmethod
+    def delete_tuple(self, tuple_: Tuple) -> bool:
+        """Delete a relationship tuple from the graph. Returns True if it existed."""
+        ...
+
+    @abstractmethod
     def check(self, subject: str, action: str, object: str) -> bool:
         """Check if subject can perform action on object"""
         ...

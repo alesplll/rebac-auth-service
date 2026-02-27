@@ -26,6 +26,45 @@ class TestPermissionServiceCheck:
         cache.get.assert_called_once_with("user:alice", "read", "doc:1")
         cache.set.assert_called_once_with("user:alice", "read", "doc:1", True, ttl_seconds=30)
 
+    def test_check_sends_audit_event_on_allow(self):
+        store = MagicMock()
+        store.check.return_value = True
+        cache = MagicMock()
+        cache.get.return_value = None
+        audit = MagicMock()
+
+        svc = PermissionService(store=store, cache=cache, audit_producer=audit)
+        result = svc.check("user:alice", "read", "doc:1")
+
+        assert result is True
+        audit.send_decision_event.assert_called_once_with("user:alice", "read", "doc:1", True)
+
+    def test_check_sends_audit_event_on_deny(self):
+        store = MagicMock()
+        store.check.return_value = False
+        cache = MagicMock()
+        cache.get.return_value = None
+        audit = MagicMock()
+
+        svc = PermissionService(store=store, cache=cache, audit_producer=audit)
+        result = svc.check("user:bob", "write", "doc:2")
+
+        assert result is False
+        audit.send_decision_event.assert_called_once_with("user:bob", "write", "doc:2", False)
+
+    def test_check_sends_audit_event_on_cache_hit(self):
+        store = MagicMock()
+        cache = MagicMock()
+        cache.get.return_value = True  # cache hit
+        audit = MagicMock()
+
+        svc = PermissionService(store=store, cache=cache, audit_producer=audit)
+        result = svc.check("user:alice", "read", "doc:1")
+
+        assert result is True
+        store.check.assert_not_called()
+        audit.send_decision_event.assert_called_once_with("user:alice", "read", "doc:1", True)
+
     def test_returns_cached_result_without_calling_store(self):
         store = MagicMock()
         cache = MagicMock()
@@ -57,6 +96,37 @@ class TestPermissionServiceWriteTuple:
         assert result is True
         store.write_tuple.assert_called_once_with(t)
         audit.send_tuple_event.assert_called_once_with(t, "tuple_written")
+
+
+class TestPermissionServiceDeleteTuple:
+    def test_no_store_raises(self):
+        svc = PermissionService(store=None, cache=None, audit_producer=None)
+        with pytest.raises(RuntimeError, match="No storage"):
+            svc.delete_tuple(Tuple("user:a", "MEMBER_OF", "group:g"))
+
+    def test_delegates_to_store_and_emits_audit(self):
+        store = MagicMock()
+        store.delete_tuple.return_value = True
+        audit = MagicMock()
+
+        svc = PermissionService(store=store, cache=None, audit_producer=audit)
+        t = Tuple("user:alice", "MEMBER_OF", "group:dev")
+        result = svc.delete_tuple(t)
+
+        assert result is True
+        store.delete_tuple.assert_called_once_with(t)
+        audit.send_tuple_event.assert_called_once_with(t, "tuple_removed")
+
+    def test_no_audit_if_delete_fails(self):
+        store = MagicMock()
+        store.delete_tuple.return_value = False
+        audit = MagicMock()
+
+        svc = PermissionService(store=store, cache=None, audit_producer=audit)
+        result = svc.delete_tuple(Tuple("user:alice", "MEMBER_OF", "group:dev"))
+
+        assert result is False
+        audit.send_tuple_event.assert_not_called()
 
 
 class TestPermissionServiceReadTuples:
